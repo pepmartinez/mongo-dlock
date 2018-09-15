@@ -36,7 +36,7 @@ var DLock = function (id, mdl) {
 
 //////////////////////////////////////////////
 DLock.prototype.lock = function (cb) {
-  if (this._local_locked) setImmediate (function () {
+  if (this._local_locked) return setImmediate (function () {
     // recursive lock not allowed
     cb (null, false);
   });
@@ -86,7 +86,7 @@ DLock.prototype.lock = function (cb) {
 
 //////////////////////////////////////////////
 DLock.prototype.unlock = function (cb) {
-  if (!this._local_locked) setImmediate (function () {
+  if (!this._local_locked) return setImmediate (function () {
     // we do not hold the lock, so do not even try
     cb (null, false);
   });
