@@ -1,34 +1,13 @@
 var _ =            require ('lodash');
-var async =        require ('async');
 var uuid =         require ('uuid');
 var MongoClient =  require ('mongodb').MongoClient;
 
 
 
-
-/*
-
-lock: entry in db.coll:
- {
-   _id: id , lock id
-   lock:   , true | false
-   ct:      , creat time
-   et:      , exp time
- }
-
-
- ttl index on exp + grace-period
-
-
- lock: upsert (_id=id, lock=false OR et=in-past) -> set (lock=true, ct: now, et:now+delta)
-   ok if no error
-   no lock if dup, or (upserted = 0 and  modified = 0)
- unlock: remove (_id, lock=true)
-*/
-
 //////////////////////////////////////////////
-var DLock = function (id, mdl) {
-  this._id = id;
+var DLock = function (mdl, opts) {
+  this._exp_delta = opts.exp_delta || 30000;
+  this._id = opts.id || uuid.v4 ();
   this._mdl = mdl;
   this._local_locked = false;
 }
@@ -53,7 +32,7 @@ DLock.prototype.lock = function (cb) {
     $set: {
       lockd: true,
       ct:    new Date (),
-      et:    new Date (new Date ().getTime () + 30000)
+      et:    new Date (new Date ().getTime () + this._exp_delta)
     }
   };
 
@@ -85,6 +64,44 @@ DLock.prototype.lock = function (cb) {
 
 
 //////////////////////////////////////////////
+DLock.prototype.refresh = function (cb) {
+  if (!this._local_locked) return setImmediate (function () {
+    // we do not hold the lock, so do not even try
+    cb (null, false);
+  });
+
+  var q = {
+    _id:   this._id,
+    lockd: true
+  };
+  
+  var upd = {
+    $set: {
+      et: new Date (new Date ().getTime () + this._exp_delta)
+    }
+  };
+
+  this._mdl._coll.updateOne (q, upd, (err, res) => {
+    if (err) {
+      if (err.code && (11000 == err.code)) {
+        console.log ('%s duplicated, lock refresh failed', this._id);
+        return cb (null, false);
+      }
+    }
+    else {
+      if (res.modifiedCount) {
+        console.log ('%s modified, lock refreshed', this._id);
+        return cb (null, true);
+      }
+
+      console.log ('%s update produced no results, lock refresh failed', this._id);
+      return cb (null, false);
+    }
+  });
+}
+
+
+//////////////////////////////////////////////
 DLock.prototype.unlock = function (cb) {
   if (!this._local_locked) return setImmediate (function () {
     // we do not hold the lock, so do not even try
@@ -105,22 +122,23 @@ DLock.prototype.unlock = function (cb) {
 
 
 
-
-
 //////////////////////////////////////////////
-var MongoDLock = function (client, db, coll) {
+var MongoDLock = function (client, db, coll, opts) {
   this._client = client;
   this._db =     db;
   this._coll =   coll;
 
-  // TODO create ttl index on et
-  this._coll.createIndex ({et: 1}, {expireAfterSeconds: 60});
+  // create ttl index on et
+  this._coll.createIndex ({et: 1}, {expireAfterSeconds: (opts.grace || 60)});
 }
 
 
 //////////////////////////////////////////////
-MongoDLock.prototype.dlock = function (id) {
-  var l = new DLock (id || uuid.v4 (), this);
+MongoDLock.prototype.dlock = function (opts) {
+  var the_opts;
+  if (!opts) the_opts = {};
+  else if (_.isString (opts)) the_opts = {id: opts};
+  var l = new DLock (this, the_opts);
   return l;
 }
 
@@ -144,7 +162,7 @@ module.exports = function (opts, cb) {
     var db = client.db (dbName);
     var coll = db.collection (collName);
 
-    var mdl = new MongoDLock (client, db, coll);
+    var mdl = new MongoDLock (client, db, coll, opts);
     cb (null, mdl);
   });
 } 
