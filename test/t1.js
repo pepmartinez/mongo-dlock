@@ -120,4 +120,48 @@ describe('Mongo-DLock test', function () {
     });
   });
 
+
+  it('can lock past expiration (autorefresh: false)', function (done) {
+    MDL ({exp_delta: 1000, autorefresh: false}, (err, Locks) => {
+      if (err) return done (err);
+      
+      var l1 = Locks.dlock ('some-task');
+      var l2 = Locks.dlock ('some-task');
+  
+      async.series ([
+        (cb) => l1.lock (cb),
+        (cb) => setTimeout (cb, 1500),
+        (cb) => l2.lock (cb),
+        (cb) => l2.unlock (cb),
+        (cb) => l1.unlock (cb)
+      ], (err, res) => {
+        Locks.close ();
+        res.should.eql ([true, undefined, true, true, false]);
+        done (err);
+      });
+    });
+  });
+
+
+  it('can not lock past expiration (autorefresh: true)', function (done) {
+    MDL ({exp_delta: 1000}, (err, Locks) => {
+      if (err) return done (err);
+      
+      var l1 = Locks.dlock ('some-task');
+      var l2 = Locks.dlock ('some-task');
+  
+      async.series ([
+        (cb) => l1.lock (cb),
+        (cb) => setTimeout (cb, 1500),
+        (cb) => l2.lock (cb),
+        (cb) => l2.unlock (cb),
+        (cb) => l1.unlock (cb)
+      ], (err, res) => {
+        Locks.close ();
+        res.should.eql ([true, undefined, false, false, true]);
+        done (err);
+      });
+    });
+  });
+
 });
