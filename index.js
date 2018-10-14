@@ -1,5 +1,6 @@
 var _ =            require ('lodash');
 var uuid =         require ('uuid');
+var mubsub =       require ('mubsub');
 var MongoClient =  require ('mongodb').MongoClient;
 
 
@@ -9,6 +10,7 @@ var DLock = function (mdl, opts) {
   this._exp_delta = opts.exp_delta || 5000;
   this._autorefresh = _.isBoolean (opts.autorefresh) ? opts.autorefresh : true;
   this._id = opts.id || uuid.v4 ();
+  this._wait_lock_period = opts.wait_lock_period || 5000;
   this._mdl = mdl;
   this._local_locked = false;
 }
@@ -40,26 +42,31 @@ DLock.prototype.lock = function (cb) {
   this._mdl._coll.updateOne (q, upd, {upsert: true}, (err, res) => {
     if (err) {
       if (err.code && (11000 == err.code)) {
-        console.log ('%s duplicated, lock failed', this._id);
+//        console.log ('%s duplicated, lock failed', this._id);
         return cb (null, false);
       }
     }
     else {
       if (res.modifiedCount) {
-        console.log ('%s modified, lock acquired', this._id);
+//        console.log ('%s modified, lock acquired', this._id);
         this._local_locked = true;
       } else if (res.upsertedCount) {
-        console.log ('%s upserted, lock acquired', this._id);
+//        console.log ('%s upserted, lock acquired', this._id);
         this._local_locked = true;
       }
       else {
-        console.log ('%s upsert produced no results, lock failed', this._id);
+//        console.log ('%s upsert produced no results, lock failed', this._id);
         this._local_locked = false;
       }
       
       if (this._autorefresh && this._local_locked) {
         // set autorefresh
         this._set_autorefresh ();
+      }
+
+      if (this._local_locked) {
+//        console.log ('%s publish lock acquired', this._id);
+        this._mdl._mubsub_channel.publish (this._id, {id: this._id, locked: true});
       }
 
       return cb (null, this._local_locked);
@@ -69,11 +76,70 @@ DLock.prototype.lock = function (cb) {
 
 
 //////////////////////////////////////////////
+DLock.prototype.wait_lock = function (cb) {
+  if (this._local_locked) return setImmediate (function () {
+    // recursive lock not allowed
+    cb (null, false);
+  });
+  
+//  console.log ('%s: attempt wait_lock', this._id);
+
+  this.lock ((err, locked) => {
+    if (err) {
+//      console.log ('%s: wait_lock ended in error', this._id, err);
+      return cb (err);
+    }
+
+    if (locked) {
+//      console.log ('%s: wait_lock ended, lock acquired', this._id);
+      return cb (null, locked);
+    }
+
+//    console.log ('%s: wait_lock try done, lock not acquired. Retrying in %d msecs', this._id, this._wait_lock_period);
+
+    this._wait_lock_cb = cb;
+    this._wait_lock_timer = setTimeout (() => {
+//      console.log ('%s: wait_lock retrying', this._id);
+      this.wait_lock (this._wait_lock_cb);
+    }, this._wait_lock_period);
+  });
+}
+
+
+//////////////////////////////////////////////
+DLock.prototype.unlock = function (cb) {
+  if (!this._local_locked) return setImmediate (function () {
+    // we do not hold the lock, so do not even try
+    cb (null, false);
+  });
+
+  var q = {
+    _id:   this._id,
+    lockd: true
+  };
+
+  this._mdl._coll.deleteOne (q, (err, res) => {
+    if (err) return cb (err);
+
+    var unlocked = (1 == res.deletedCount);
+
+    if (unlocked) {
+      this._local_locked = false;
+      this._clear_autorefresh ();
+      this._mdl._mubsub_channel.publish (this._id, {id: this._id, locked: false});
+    }
+
+    return cb (null, (1 == res.deletedCount));
+  });
+}
+
+
+//////////////////////////////////////////////
 DLock.prototype._set_autorefresh = function (cb) {
   var self = this;
 
   this._autorefresh_timer = setTimeout (() => {
-    console.log ('firing refresh');
+//    console.log ('firing refresh');
 
     self._refresh ((err, res) => {
       if (err || !res) {
@@ -117,43 +183,21 @@ DLock.prototype._refresh = function (cb) {
   this._mdl._coll.updateOne (q, upd, (err, res) => {
     if (err) {
       if (err.code && (11000 == err.code)) {
-        console.log ('%s duplicated, lock refresh failed', this._id);
+//        console.log ('%s duplicated, lock refresh failed', this._id);
         return cb (null, false);
       }
     }
     else {
       if (res.modifiedCount) {
-        console.log ('%s modified, lock refreshed', this._id);
+//        console.log ('%s modified, lock refreshed', this._id);
         return cb (null, true);
       }
 
-      console.log ('%s update produced no results, lock refresh failed', this._id);
+//      console.log ('%s update produced no results, lock refresh failed', this._id);
       return cb (null, false);
     }
   });
 }
-
-
-//////////////////////////////////////////////
-DLock.prototype.unlock = function (cb) {
-  if (!this._local_locked) return setImmediate (function () {
-    // we do not hold the lock, so do not even try
-    cb (null, false);
-  });
-
-  var q = {
-    _id:   this._id,
-    lockd: true
-  };
-
-  this._mdl._coll.deleteOne (q, (err, res) => {
-    if (err) return cb (err);
-    this._local_locked = false;
-    this._clear_autorefresh ();
-    return cb (null, (1 == res.deletedCount));
-  });
-}
-
 
 
 //////////////////////////////////////////////
@@ -162,6 +206,11 @@ var MongoDLock = function (client, db, coll, opts) {
   this._db =     db;
   this._coll =   coll;
   this._opts =   opts;
+
+  this._mubsub_client = mubsub (opts.notif_url || 'mongodb://localhost:27017/mongo_dlock_notif');
+  this._mubsub_channel = this._mubsub_client.channel (opts.notif_channel || 'mongo_dlock_notif');
+
+  this._mubsub_channel.subscribe (console.log);
 
   // create ttl index on et
   this._coll.createIndex ({et: 1}, {expireAfterSeconds: (opts.grace || 60)});
@@ -184,6 +233,7 @@ MongoDLock.prototype.close = function (cb) {
   // TODO release all locks?
 
   this._client.close (cb);
+  this._mubsub_client.close ();
 }
 
 
