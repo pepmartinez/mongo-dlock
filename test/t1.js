@@ -132,6 +132,12 @@ describe('Mongo-DLock test', function () {
       
       var l1 = Locks.dlock ('some-task');
       var l2 = Locks.dlock ('some-task');
+
+      l1.on ('lock', console.log);
+      l1.on ('unlock', console.log);
+
+      l2.on ('lock', console.log);
+      l2.on ('unlock', console.log);
   
       async.series ([
         (cb) => l1.lock (cb),

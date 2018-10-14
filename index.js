@@ -3,6 +3,8 @@ var uuid =         require ('uuid');
 var mubsub =       require ('mubsub');
 var MongoClient =  require ('mongodb').MongoClient;
 
+var EventEmitter = require ('events').EventEmitter;
+var util =         require ('util');
 
 
 //////////////////////////////////////////////
@@ -13,6 +15,14 @@ var DLock = function (mdl, opts) {
   this._wait_lock_period = opts.wait_lock_period || 5000;
   this._mdl = mdl;
   this._local_locked = false;
+}
+
+util.inherits (DLock, EventEmitter);
+
+
+//////////////////////////////////////////////
+DLock.prototype.id = function () {
+  return this._id;
 }
 
 
@@ -82,25 +92,47 @@ DLock.prototype.wait_lock = function (cb) {
     cb (null, false);
   });
   
+  var self = this;
+  function _on_unlocked (evt) {
+    if (self._wait_lock_timer) {
+      clearTimeout (self._wait_lock_timer);
+      self._wait_lock_timer = undefined;
+    }
+
+    self._internal_wait_lock ();
+  }
+
+  this.on ('unlock', _on_unlocked);
+  
+  this._wait_lock_cb = function (err, res) {
+    self.removeListener ('unlock', _on_unlocked);
+    cb (err, res);
+  }
+
+  this._internal_wait_lock ();
+}
+
+
+//////////////////////////////////////////////
+DLock.prototype._internal_wait_lock = function () {
 //  console.log ('%s: attempt wait_lock', this._id);
 
   this.lock ((err, locked) => {
     if (err) {
 //      console.log ('%s: wait_lock ended in error', this._id, err);
-      return cb (err);
+      return this._wait_lock_cb (err);
     }
 
     if (locked) {
 //      console.log ('%s: wait_lock ended, lock acquired', this._id);
-      return cb (null, locked);
+      return this._wait_lock_cb (null, locked);
     }
 
 //    console.log ('%s: wait_lock try done, lock not acquired. Retrying in %d msecs', this._id, this._wait_lock_period);
 
-    this._wait_lock_cb = cb;
     this._wait_lock_timer = setTimeout (() => {
 //      console.log ('%s: wait_lock retrying', this._id);
-      this.wait_lock (this._wait_lock_cb);
+      this._internal_wait_lock ();
     }, this._wait_lock_period);
   });
 }
@@ -206,11 +238,16 @@ var MongoDLock = function (client, db, coll, opts) {
   this._db =     db;
   this._coll =   coll;
   this._opts =   opts;
+  this._locks = {};
 
   this._mubsub_client = mubsub (opts.notif_url || 'mongodb://localhost:27017/mongo_dlock_notif');
   this._mubsub_channel = this._mubsub_client.channel (opts.notif_channel || 'mongo_dlock_notif');
 
-  this._mubsub_channel.subscribe (console.log);
+  this._mubsub_channel.subscribe ((evt) => {
+//    console.log ('got event: %j', evt);
+    var dlock = this._locks[evt.id];
+    if (dlock) dlock.emit (evt.locked ? 'lock' : 'unlock', evt);
+  });
 
   // create ttl index on et
   this._coll.createIndex ({et: 1}, {expireAfterSeconds: (opts.grace || 60)});
@@ -224,6 +261,7 @@ MongoDLock.prototype.dlock = function (opts) {
   else if (_.isString (opts)) _.merge (the_opts, this._opts, {id: opts});
   else _.merge (the_opts, this._opts);
   var l = new DLock (this, the_opts);
+  this._locks [l.id()] = l;
   return l;
 }
 
