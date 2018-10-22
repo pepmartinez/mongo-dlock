@@ -1,6 +1,7 @@
 var MDL = require('../');
 var async = require('async');
 var should = require('should');
+var _ = require ('lodash');
 
 describe('Mongo-DLock test', function () {
   before(function (done) {
@@ -132,12 +133,6 @@ describe('Mongo-DLock test', function () {
       
       var l1 = Locks.dlock ('some-task');
       var l2 = Locks.dlock ('some-task');
-
-      l1.on ('lock', console.log);
-      l1.on ('unlock', console.log);
-
-      l2.on ('lock', console.log);
-      l2.on ('unlock', console.log);
   
       async.series ([
         (cb) => l1.lock (cb),
@@ -207,6 +202,50 @@ describe('Mongo-DLock test', function () {
 
         done (err);
       });
+    });
+  });  
+  
+  it('manages races of 5 participants ok, 10k tries', function (done) {
+    MDL ({exp_delta: 1000, wait_lock_period: 1000}, (err, Locks) => {
+      if (err) return done (err);
+      
+      var l1 = Locks.dlock ('some-task');
+      var l2 = Locks.dlock ('some-task');
+      var l3 = Locks.dlock ('some-task');
+      var l4 = Locks.dlock ('some-task');
+      var l5 = Locks.dlock ('some-task');
+  
+      async.timesSeries (10000, 
+        function (n, next) {
+          async.series ([
+            (cb) => async.parallel ([
+              (cb) => l1.lock (cb),
+              (cb) => l2.lock (cb),
+              (cb) => l3.lock (cb),
+              (cb) => l4.lock (cb),
+              (cb) => l5.lock (cb)
+            ], cb),
+            (cb) => async.parallel ([
+              (cb) => l1.unlock (cb),
+              (cb) => l2.unlock (cb),
+              (cb) => l3.unlock (cb),
+              (cb) => l4.unlock (cb),
+              (cb) => l5.unlock (cb)
+            ], cb)
+          ], (err, res) => {
+            res[0].should.eql (res[1]); 
+
+            var locks = 0;
+            _.forEach (res[0], (v) => {if (v) locks++})
+
+            locks.should.equal (1);
+            next (err);
+          });
+        },
+        function (err) {
+          Locks.close ();
+          done (err);
+        });
     });
   });
 

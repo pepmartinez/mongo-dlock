@@ -95,6 +95,7 @@ DLock.prototype.wait_lock = function (cb) {
   var self = this;
   function _on_unlocked (evt) {
     if (self._wait_lock_timer) {
+//      console.log ('received an unlock evt, reviving');
       clearTimeout (self._wait_lock_timer);
       self._wait_lock_timer = undefined;
     }
