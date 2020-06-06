@@ -1,6 +1,6 @@
 var _ =            require ('lodash');
 var uuid =         require ('uuid');
-var mubsub =       require ('mubsub');
+var mubsub =       require ('@nodebb/mubsub');
 var MongoClient =  require ('mongodb').MongoClient;
 
 var EventEmitter = require ('events').EventEmitter;
@@ -68,7 +68,7 @@ DLock.prototype.lock = function (cb) {
 //        console.log ('%s upsert produced no results, lock failed', this._id);
         this._local_locked = false;
       }
-      
+
       if (this._autorefresh && this._local_locked) {
         // set autorefresh
         this._set_autorefresh ();
@@ -91,7 +91,7 @@ DLock.prototype.wait_lock = function (cb) {
     // recursive lock not allowed
     cb (null, false);
   });
-  
+
   var self = this;
   function _on_unlocked (evt) {
     if (self._wait_lock_timer) {
@@ -104,7 +104,7 @@ DLock.prototype.wait_lock = function (cb) {
   }
 
   this.on ('unlock', _on_unlocked);
-  
+
   this._wait_lock_cb = function (err, res) {
     self.removeListener ('unlock', _on_unlocked);
     cb (err, res);
@@ -206,7 +206,7 @@ DLock.prototype._refresh = function (cb) {
     _id:   this._id,
     lockd: true
   };
-  
+
   var upd = {
     $set: {
       et: new Date (new Date ().getTime () + this._exp_delta)
@@ -290,4 +290,4 @@ module.exports = function (opts, cb) {
     var mdl = new MongoDLock (client, db, coll, opts);
     cb (null, mdl);
   });
-} 
+}
