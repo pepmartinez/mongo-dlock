@@ -1,7 +1,7 @@
 {
   "name": "mongo-dlock",
   "description": "distributed lock based on mongodb",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "keywords": [
     "lock",
     "distributed",
@@ -22,14 +22,14 @@
   },
   "license": "GPL-3.0",
   "dependencies": {
-    "lodash": "~4.17.14",
+    "lodash": "~4.17.19",
     "async": "~3.2.0",
-    "mongodb": "~3.5.5",
-    "uuid": "3.3.2",
-    "@nodebb/mubsub": "~1.6.0"
+    "mongodb": "~3.5.9",
+    "uuid": "~8.2.0",
+    "@nodebb/mubsub": "~1.6.2"
   },
   "devDependencies": {
-    "mocha": "~7.2.0",
+    "mocha": "~8.0.1",
     "should": "~13.2.3"
   },
   "scripts": {
