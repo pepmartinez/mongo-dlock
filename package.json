@@ -1,7 +1,7 @@
 {
   "name": "mongo-dlock",
   "description": "distributed lock based on mongodb",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "keywords": [
     "lock",
     "distributed",
