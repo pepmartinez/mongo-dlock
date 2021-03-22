@@ -69,7 +69,7 @@ For coherency, the callback is also called with a second `res` parameter as true
 releases a lock (which was previously held). Callback is called upon error or upon completion, where res is `true` if the lock was released, `false` if it was not released (but no actual error was seen)
 
 ## Events
-The DLock objects are EventEmitters and emit `lock` and `unlock` events upon sucessful lock and unlock, but with a twist: events are also distributed thanks to a pubsub bus based on mubsub (that is, pubsub over mongodb capped collections), so when an instance of DLock acquires a lock (or releases it) the event is propagated to *all* instances od DLock with the same id (when they use te same mongob config, of course)
+The DLock objects are EventEmitters and emit `lock` and `unlock` events upon sucessful lock and unlock, but with a twist: events are also distributed thanks to a pubsub bus based on mubsub (that is, pubsub over mongodb capped collections), so when an instance of DLock acquires a lock (or releases it) the event is propagated to *all* instances od DLock with the same id (when they use te same mongodb config, of course)
 
 In both cases, the event comes with a parameter, an object containing the id of the dlock, and whether it's a lock or an unlock
 
