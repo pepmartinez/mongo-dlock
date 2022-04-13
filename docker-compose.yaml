@@ -1,0 +1,13 @@
+version: '3'
+
+services:
+  mongo:
+    image: mongo:4.4.2-bionic
+    command: --logpath /dev/null
+    restart: on-failure
+    ports:
+      - 27017:27017
+
+networks:
+  default:
+
