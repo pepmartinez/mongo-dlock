@@ -1,7 +1,7 @@
 {
   "name": "mongo-dlock",
   "description": "distributed lock based on mongodb",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "keywords": [
     "lock",
     "distributed",
@@ -23,16 +23,17 @@
   "license": "MIT",
   "dependencies": {
     "@nodebb/mubsub": "~1.8.0",
-    "async": "~3.2.3",
+    "async": "~3.2.4",
     "lodash": "~4.17.21",
-    "mongodb": "^4.1.3",
+    "mongodb": "~4.17.0",
     "uuid": "~8.3.2"
   },
   "devDependencies": {
-    "mocha": "~9.2.2",
+    "mocha": "~10.2.0",
     "should": "~13.2.3"
   },
   "scripts": {
-    "test": "mocha --reporter spec --check-leaks --bail --no-timeouts test/"
+    "test": "docker compose up -d; sleep 5; mocha --reporter spec --check-leaks --no-timeouts --exit test/ ; docker compose down",
+    "test-with-coverage": "docker compose up -d; sleep 5; nyc --reporter=html -- mocha --reporter spec --check-leaks --no-timeouts --exit ; test/docker compose down"
   }
 }
